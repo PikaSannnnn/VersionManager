@@ -1,40 +1,28 @@
 #!/bin/bash
-### VERSION MANAGER
-#   Reads and writes a version file. 
-#   Version file will be generated in the same level as ths script.
-#   All version files of this manager expects a single file, single line of the format "version: <version>".
-#   Do not deviate, unless you wish to make changes to the script itself to accommodate. 
-###
-
-########################
-# MODIFYABLE PARAMS
-# NOTE: IF YOUR PARAM IS NOT HERE, CHECK FLAGS WITH -h FIRST! IT'S PROBABLY THERE!
-#
-#   VERSION_COMP:   Version composition. The labels of each number.
-#                   The number of part labels should be (num of delims) + 1  
-#                   Release should always be first (position 0)! 
-#                   Otherwise, it's in order of level (high -> low), which is the expected version layout
-#
-#   DELIMS:         Delimeters in version string.
-#
-
-# Default: ("release" "major" "minor" "patch")
-export VERSION_COMP=("release" "major" "minor" "patch")
-
-# Default: '-.'
-DELIMS='-.'
-
-#
-########################
+#####################################################################################
+#                                  Version Manager                                  #
+#                                  By: Pikasannnnn                                  #
+# --------------------------------------------------------------------------------- #
+# Reads and writes a version file. Version file will be generated in the same level #
+# as ths script. All version files of this manager expects a single file, single    #
+# line of the format "version: <version>". Do not deviate, unless you wish to make  #
+# changes to the script itself to accommodate.                                      #
+#####################################################################################
 
 #####################################################################################
 #                            EDIT BELOW AT YOUR OWN RISK                            #
+# --------------------------------------------------------------------------------- #
+# Honestly, if you're going to edit, try to only edit what you need. If anything,   #
+# you should really only be editting whats in get_config. Try not to add anything   #
+# that requires you to change get_version_data or any other parts of the script.    #
+# you might cause dependency issues or tangle the logic, which isn't good!          #
 #####################################################################################
 
 ########################
-# SETUP
-########################
-usage () {
+# Functions
+
+# Pretty self explanatory. It tells us how to use it.
+usage() {  
 cat << EOF
     Expected Flags:
         [-M|-m|-n|none]: In order of level (i.e. script only sees the highest level)
@@ -46,9 +34,99 @@ cat << EOF
 EOF
 }
 
+# Gets the config details
+DELIMS=""
+FORMAT=""
+get_config() {
+    if [ ! -f "config.cfg" ]; then
+        echo "What?! No config file? Well, here's mine. Check config.cfg!"
+cat << EOF > config.cfg
+# Config file for version manager. This place is whitespace sensitive! Values with whitespaces don't exist for us!
+# Keep everything as \`$setting: <value>\`. Exactly one space between and any spaces in value is ignored.
+#   If you know regex. it's basically just \`\^\$[^:]*: <value>\`. If you can read this, it's clear that setting doesn't
+#   care if there's spaces or not. If you're adding your own, just make sure you add your own logic in the script.
+#   Check the README.md if you need help with this part.
+
+# Delimeters in version string. It's the stuff that separates the numbers and words like "alpha", "beta", etc.
+# Default is \`-.\`, you'll see later.
+\$delims: -.
+
+# Your version format. It's all the numbers and stuff.
+# Some ground rules though:
+#       Most important one: THERE MUST BE AT LEAST ONE COMPONENT
+#       Make sure you use the delims to separate them! We don't want a "majorminor" component do we?
+#       If you want to specify release stage (e.g. beta, alpha), name it \`release\`... we're kinda expecting it, so do that.
+#       If you don't, get rid of it! Not having it is okay!
+# Default is \`release-major.minor.patch\`. Most people like to use this, so we're making it the norm here.
+\$format: release-major.minor.patch
+EOF
+        exit 1
+    else
+        DELIMS=$(grep "^\$[^:]*:" config.cfg | grep "delims" | sed 's/^\$[^:]*: //')
+        if [ -z "$DELIMS" ]; then
+            echo "You didn't set any delims. We don't like that, so we're going to assume you want \`-.\`"
+            DELIMS="-."
+        fi
+
+        FORMAT=$(grep "^\$[^:]*:" config.cfg | grep "format" | sed 's/^\$[^:]*: //')
+        if [ -z "" ]; then
+            echo "Did you accidently delete your format? We require at least one component (as stated in the config)!"
+            echo "If you need a new config or something, just delete the current one. We'll go ahead and terminate for now."
+            exit 1
+        fi
+    fi
+}
+
+VERSION_FORMAT=""   # This is the order of labels
+DELIM_FORMAT=""     # This is the order of delims
+VERSION_VALS=""    # This is the actual values
+RELEASE="alpha"
+NUM_VERSION_VALS=0
+get_version_data() {
+    # Init default version stuff from the config format
+    VERSION_FORMAT=($(echo "$FORMAT" | sed "s/[$DELIMS]/ /g"))
+    DELIM_FORMAT=($(echo "$FORMAT" | sed "s/[^$DELIMS]/ /g" | sed "s/ */ /g"))
+
+    # Check file exists and validate or create if it doesn't exist
+    NUM_VERSION_VALS=${#VERSION_FORMAT[@]}
+    local version_vals=($(echo ${VERSION_FORMAT[@]} | sed "s/[^ ]*/0/g"))
+    if [ -f "$FILENAME" ]; then
+        version_vals=($(grep -E "^version:" "$FILENAME" | awk '{print $2}' | sed "s/[$DELIMS]/ /g"))
+        if [ $NUM_VERSION_VALS -ne ${#version_vals[@]} ]; then
+            echo "Version file contains ${#version_vals[@]} components, but expecting $NUM_VERSION_VALS"
+            echo "Please check params or version file"
+            exit 1
+        fi
+    else
+        echo "Wow, that's crazy. Using a version manager without a version file? Anyways, here's mine. Check $FILENAME!"
+
+        # Inefficient, but good for one time. Build default version again before doing it later for real.
+        local full_version=""
+        for ((i = 0; i < NUM_VERSION_VALS; i++)); do
+            if [[ "${VERSION_FORMAT[i]}" == "release" ]]; then
+                version_vals[$i]="$RELEASE"
+            fi
+            if [ $i -ne 0 ]; then
+                full_version="$full_version${DELIM_FORMAT[((i - 1))]}"
+            fi
+
+            full_version="$full_version${version_vals[i]}"
+        done
+
+        echo "format: $FORMAT" > $FILENAME # This is metadata
+        echo "version: $full_version" >> $FILENAME
+    fi
+
+    VERSION_VALS=${version_vals[@]} # Make it global
+}
+
+########################
+# SETUP
+
+# All that default value and flag stuff. Please don't edit this.
 FILENAME="version"
 UPDATE=true
-RELEASE=""
+NEW_RELEASE=""
 VER_LVL=1
 while getopts ":r:f:Mmndh" opt; do
     case "$opt" in
@@ -70,27 +148,15 @@ while getopts ":r:f:Mmndh" opt; do
     esac
 done
 
-########################
-# VERIFICATION
-########################
+# Now all that config stuff. Likewise, please don't edit this... unless you have to.
+get_config "config.cfg"
+exit
+
+# Deal with version datat. Similar, please don't edit this. Shouldn't need to unless your custom config needs it.
+get_version_data
+echo ${VERSION_VALS[@]}
+
 # Get number of version components and check validity
-NUM_VERSION_PARTS=${#VERSION_COMP[@]}
-
-if [ -e "$FILENAME" ]; then
-
-else
-
-fi
-
-VERSION=$(grep -E "^version:" "$FILENAME" | awk '{print $2}')
-IFS='-.'
-read -r -a VERSION_PARTS <<< "$VERSION"
-
-if [ $NUM_VERSION_PARTS -ne ${#VERSION_PARTS[@]} ]; then
-    echo "Version file contains ${#VERSION_PARTS[@]} components, but expecting $NUM_VERSION_PARTS"
-    echo "Please check params or version file"
-    exit 1
-fi
 
 export VERSION_PARTS
 
