@@ -69,7 +69,7 @@ EOF
         fi
 
         FORMAT=$(grep "^\$[^:]*:" config.cfg | grep "format" | sed 's/^\$[^:]*: //')
-        if [ -z "" ]; then
+        if [ -z "$FORMAT" ]; then
             echo "Did you accidently delete your format? We require at least one component (as stated in the config)!"
             echo "If you need a new config or something, just delete the current one. We'll go ahead and terminate for now."
             exit 1
@@ -150,11 +150,10 @@ done
 
 # Now all that config stuff. Likewise, please don't edit this... unless you have to.
 get_config "config.cfg"
-exit
 
 # Deal with version datat. Similar, please don't edit this. Shouldn't need to unless your custom config needs it.
 get_version_data
-echo ${VERSION_VALS[@]}
+exit
 
 # Get number of version components and check validity
 
