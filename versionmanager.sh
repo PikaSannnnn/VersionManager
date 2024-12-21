@@ -25,12 +25,11 @@
 usage() {  
 cat << EOF
     Expected Flags:
-        [-M|-m|-n|none]: In order of level (i.e. script only sees the highest level)
-            -n: Skip update
-            -M: Apply major update (minor=patch => 0)
-            -m: Apply minor update (patch => 0)
-            none: Apply patch update
-        Other flags: Ignored
+        [-f] <filename>         : Name of the version file.
+        [-l] <update_level>     : Updates level by 1. Level is determined left to right starting from 0 (including release component).
+        [-h]                    : Displays this. Any other flags are ignored.
+        [-r] <release>          : Sets release to specific value. Expects format to include "release", otherwise this is ignored.
+        [*]                     : Other flags are ignored.
 EOF
 }
 
@@ -39,39 +38,43 @@ DELIMS=""
 FORMAT=""
 get_config() {
     if [ ! -f "config.cfg" ]; then
-        echo "What?! No config file? Well, here's mine. Check config.cfg!"
+        echo "You don't have a config.cfg file? Well, here's mine. Check the file config.cfg!"
 cat << EOF > config.cfg
-# Config file for version manager. This place is whitespace sensitive! Values with whitespaces don't exist for us!
-# Keep everything as \`$setting: <value>\`. Exactly one space between and any spaces in value is ignored.
+###############################################
+#       Config file for Version Manager       #
+###############################################
+# This place is whitespace sensitive! Values with whitespaces are ignore.
+# Keep everything as \`: <value>\`. Exactly one space between and any spaces in value is ignored.
 #   If you know regex. it's basically just \`\^\$[^:]*: <value>\`. If you can read this, it's clear that setting doesn't
 #   care if there's spaces or not. If you're adding your own, just make sure you add your own logic in the script.
 #   Check the README.md if you need help with this part.
 
 # Delimeters in version string. It's the stuff that separates the numbers and words like "alpha", "beta", etc.
 # Default is \`-.\`, you'll see later.
-\$delims: -.
+$delims: -.
 
 # Your version format. It's all the numbers and stuff.
 # Some ground rules though:
-#       Most important one: THERE MUST BE AT LEAST ONE COMPONENT
+#       **THERE MUST BE AT LEAST ONE COMPONENT**
 #       Make sure you use the delims to separate them! We don't want a "majorminor" component do we?
-#       If you want to specify release stage (e.g. beta, alpha), name it \`release\`... we're kinda expecting it, so do that.
-#       If you don't, get rid of it! Not having it is okay!
-# Default is \`release-major.minor.patch\`. Most people like to use this, so we're making it the norm here.
-\$format: release-major.minor.patch
+#       If you want to specify release stage (e.g. beta, alpha), name it \`release\`. Otherwise, we assume there isn't.
+#           All occurences of \`release\` will be updated simultaneously.
+# Default is \`release-major.minor.patch\`.
+$format: release-major.minor.patch
+
 EOF
         exit 1
     else
         DELIMS=$(grep "^\$[^:]*:" config.cfg | grep "delims" | sed 's/^\$[^:]*: //')
         if [ -z "$DELIMS" ]; then
-            echo "You didn't set any delims. We don't like that, so we're going to assume you want \`-.\`"
+            echo "No delims set. Assuming you want \`-.\`"
             DELIMS="-."
         fi
 
         FORMAT=$(grep "^\$[^:]*:" config.cfg | grep "format" | sed 's/^\$[^:]*: //')
         if [ -z "$FORMAT" ]; then
-            echo "Did you accidently delete your format? We require at least one component (as stated in the config)!"
-            echo "If you need a new config or something, just delete the current one. We'll go ahead and terminate for now."
+            echo "We require at least one component in the format (as stated in the config)! Please fix!"
+            echo "If you need a new config, delete the current one and we'll recreate it for you."
             exit 1
         fi
     fi
@@ -80,8 +83,8 @@ EOF
 VERSION_FORMAT=""   # This is the order of labels
 DELIM_FORMAT=""     # This is the order of delims
 VERSION_VALS=""    # This is the actual values
-RELEASE="alpha"
 NUM_VERSION_VALS=0
+FULL_VERSION=""
 get_version_data() {
     # Init default version stuff from the config format
     VERSION_FORMAT=($(echo "$FORMAT" | sed "s/[$DELIMS]/ /g"))
@@ -89,35 +92,48 @@ get_version_data() {
 
     # Check file exists and validate or create if it doesn't exist
     NUM_VERSION_VALS=${#VERSION_FORMAT[@]}
-    local version_vals=($(echo ${VERSION_FORMAT[@]} | sed "s/[^ ]*/0/g"))
     if [ -f "$FILENAME" ]; then
-        version_vals=($(grep -E "^version:" "$FILENAME" | awk '{print $2}' | sed "s/[$DELIMS]/ /g"))
+        local version_vals=($(grep -E "^version:" "$FILENAME" | awk '{print $2}' | sed "s/[$DELIMS]/ /g"))
         if [ $NUM_VERSION_VALS -ne ${#version_vals[@]} ]; then
             echo "Version file contains ${#version_vals[@]} components, but expecting $NUM_VERSION_VALS"
             echo "Please check params or version file"
             exit 1
         fi
+
+        VERSION_VALS=(${version_vals[@]}) # Make it global
     else
-        echo "Wow, that's crazy. Using a version manager without a version file? Anyways, here's mine. Check $FILENAME!"
+        echo "You don't have a $FILENAME file? Here's mine. Check the file $FILENAME!"
 
         # Inefficient, but good for one time. Build default version again before doing it later for real.
-        local full_version=""
+        local version_vals=($(echo ${VERSION_FORMAT[@]} | sed "s/[^ ]*/0/g"))
         for ((i = 0; i < NUM_VERSION_VALS; i++)); do
             if [[ "${VERSION_FORMAT[i]}" == "release" ]]; then
-                version_vals[$i]="$RELEASE"
+                version_vals[$i]="alpha"
             fi
-            if [ $i -ne 0 ]; then
-                full_version="$full_version${DELIM_FORMAT[((i - 1))]}"
-            fi
-
-            full_version="$full_version${version_vals[i]}"
         done
+        rebuild_version "${version_vals[@]}"
 
         echo "format: $FORMAT" > $FILENAME # This is metadata
-        echo "version: $full_version" >> $FILENAME
-    fi
+        echo "version: $FULL_VERSION" >> $FILENAME
 
-    VERSION_VALS=${version_vals[@]} # Make it global
+        exit 0
+    fi
+}
+
+rebuild_version() {
+    local version_vals=($@)
+
+    local full_version=""
+    for ((i = 0; i < NUM_VERSION_VALS; i++)); do
+        # Add the delims
+        if [ $i -ne 0 ]; then
+            full_version="$full_version${DELIM_FORMAT[((i - 1))]}"
+        fi
+
+        full_version="$full_version${version_vals[i]}"
+    done
+
+    FULL_VERSION=$full_version
 }
 
 ########################
@@ -126,15 +142,11 @@ get_version_data() {
 # All that default value and flag stuff. Please don't edit this.
 FILENAME="version"
 UPDATE=true
-NEW_RELEASE=""
-VER_LVL=1
-while getopts ":r:f:Mmndh" opt; do
+RELEASE=""
+VER_LVL=-1
+while getopts ":r:f:l:h" opt; do
     case "$opt" in
-        M)  VERLVL=3
-            ;;
-        m)  VERLVL=2
-            ;;
-        n)  UPDATE=false
+        l)  VER_LVL=$OPTARG
             ;;
         h)  usage
             exit 0
@@ -151,36 +163,30 @@ done
 # Now all that config stuff. Likewise, please don't edit this... unless you have to.
 get_config "config.cfg"
 
-# Deal with version datat. Similar, please don't edit this. Shouldn't need to unless your custom config needs it.
+# Deal with version data. Similar, please don't edit this. Shouldn't need to unless your custom config needs it.
 get_version_data
-exit
 
-# Get number of version components and check validity
+########################
+# APPLYING UPDATE
 
-export VERSION_PARTS
+echo "Executing update:"
+for ((i = 0; i < NUM_VERSION_VALS; i++)); do
+    PART="${VERSION_FORMAT[i]}"
+    OLD_VAL=${VERSION_VALS[i]}
 
-RESET=false
-
-UPDATE_START_IND=$((NUM_VERSION_PARTS - VER_LVL))
-echo "Executing ${VERSION_COMP[UPDATE_START_IND]} update"
-NEWVERSION="${version_parts[0]}-"
-for ((i = UPDATE_START_IND; i < $NUM_VERSION_PARTS; i++)); do
-    PART="${VERSION_COMP[i]}"
-
-    NEWVAL=$((version_parts[i] + 1))
-    if [ "$RESET" == "true" ]; then
-        NEWVAL=0
+    if [[ "$PART" == "release" ]]; then
+        if [[ ! -z $RELEASE ]]; then
+            VERSION_VALS[i]=$RELEASE
+        fi
+    elif [ $i -eq $VER_LVL ]; then
+        VERSION_VALS[i]=$(($OLD_VAL + 1))
+    elif [ $i -gt $VER_LVL ]; then
+        VERSION_VALS[i]=0
     fi
-    RESET=true
 
-    echo "\tUpdated [\033[1;33m$PART ${version_parts[i]} -> $NEWVAL\033[0m]"
+    echo -e "\tUpdated $PART [\033[1;33m$OLD_VAL -> ${VERSION_VALS[i]}\033[0m]"
 done
 
-for ((i = 1; i < $NUM_VERSION_PARTS; i++)); do
-    NEWVERSION="$NEWVERSION${version_parts[i]}"
-    if [ $i -lt $((NUM_VERSION_PARTS - 1)) ]; then
-        NEWVERSION="$NEWVERSION."
-    fi
-done
-echo "version: $NEWVERSION"
-# echo "version: $NEWVERSION" > "TESTVERSION"
+rebuild_version "${VERSION_VALS[@]}"
+echo "format: $FORMAT" > $FILENAME # This is metadata
+echo "version: $FULL_VERSION" >> $FILENAME
