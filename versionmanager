@@ -37,21 +37,22 @@ EOF
 DELIMS=""
 FORMAT=""
 get_config() {
-    if [ ! -f "config.cfg" ]; then
-        echo "You don't have a config.cfg file? Well, here's mine. Check the file config.cfg!"
-cat << EOF > config.cfg
+    local CFG_NAME=$1
+    if [ ! -f $CFG_NAME ]; then
+        echo "You don't have a CFG_NAME file? Well, here's mine. Check the file $CFG_NAME!"
+cat << EOF > $CFG_NAME
 ###############################################
 #       Config file for Version Manager       #
 ###############################################
 # This place is whitespace sensitive! Values with whitespaces are ignore.
 # Keep everything as \`: <value>\`. Exactly one space between and any spaces in value is ignored.
-#   If you know regex. it's basically just \`\^\$[^:]*: <value>\`. If you can read this, it's clear that setting doesn't
+#   If you know regex. it's basically just \`^\$[^:]*: <value>\`. If you can read this, it's clear that setting doesn't
 #   care if there's spaces or not. If you're adding your own, just make sure you add your own logic in the script.
 #   Check the README.md if you need help with this part.
 
 # Delimeters in version string. It's the stuff that separates the numbers and words like "alpha", "beta", etc.
 # Default is \`-.\`, you'll see later.
-$delims: -.
+\$delims: -.
 
 # Your version format. It's all the numbers and stuff.
 # Some ground rules though:
@@ -60,18 +61,18 @@ $delims: -.
 #       If you want to specify release stage (e.g. beta, alpha), name it \`release\`. Otherwise, we assume there isn't.
 #           All occurences of \`release\` will be updated simultaneously.
 # Default is \`release-major.minor.patch\`.
-$format: release-major.minor.patch
+\$format: release-major.minor.patch
 
 EOF
         exit 1
     else
-        DELIMS=$(grep "^\$[^:]*:" config.cfg | grep "delims" | sed 's/^\$[^:]*: //')
+        DELIMS=$(grep "^\$[^:]*:" $CFG_NAME | grep "delims" | sed 's/^\$[^:]*: //')
         if [ -z "$DELIMS" ]; then
             echo "No delims set. Assuming you want \`-.\`"
             DELIMS="-."
         fi
 
-        FORMAT=$(grep "^\$[^:]*:" config.cfg | grep "format" | sed 's/^\$[^:]*: //')
+        FORMAT=$(grep "^\$[^:]*:" $CFG_NAME | grep "format" | sed 's/^\$[^:]*: //')
         if [ -z "$FORMAT" ]; then
             echo "We require at least one component in the format (as stated in the config)! Please fix!"
             echo "If you need a new config, delete the current one and we'll recreate it for you."
@@ -161,7 +162,7 @@ while getopts ":r:f:l:h" opt; do
 done
 
 # Now all that config stuff. Likewise, please don't edit this... unless you have to.
-get_config "config.cfg"
+get_config "vermgr_config.cfg"
 
 # Deal with version data. Similar, please don't edit this. Shouldn't need to unless your custom config needs it.
 get_version_data
