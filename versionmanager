@@ -29,6 +29,7 @@ cat << EOF
         [-l] <update_level>     : Updates level by 1. Level is determined left to right starting from 0 (including release component).
         [-h]                    : Displays this. Any other flags are ignored.
         [-r] <release>          : Sets release to specific value. Expects format to include "release", otherwise this is ignored.
+        [-c]                    : Clears, or rather resets to 0, the version numbers. This is ignored if [-l] is used.
         [*]                     : Other flags are ignored.
 EOF
 }
@@ -139,13 +140,15 @@ rebuild_version() {
 
 ########################
 # SETUP
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # All that default value and flag stuff. Please don't edit this.
 FILENAME="version"
 UPDATE=true
 RELEASE=""
 VER_LVL=-1
-while getopts ":r:f:l:h" opt; do
+CLEAR=false
+while getopts ":r:f:l:hc" opt; do
     case "$opt" in
         l)  VER_LVL=$OPTARG
             ;;
@@ -156,20 +159,27 @@ while getopts ":r:f:l:h" opt; do
             ;;
         r)  RELEASE=$OPTARG
             ;;
+        c)  CLEAR=true
+            ;;
         *)
             ;;
     esac
 done
 
 # Now all that config stuff. Likewise, please don't edit this... unless you have to.
-get_config "vermgr_config.cfg"
+get_config "$SCRIPT_DIR/vermgr_config.cfg"
 
 # Deal with version data. Similar, please don't edit this. Shouldn't need to unless your custom config needs it.
 get_version_data
 
 ########################
 # APPLYING UPDATE
+# Check if clearing
+if [[ $VER_LVL -lt 0 ]] && [[ "$CLEAR" == "false" ]]; then
+    VER_LVL=$((NUM_VERSION_VALS+1))
+fi
 
+# Update the values as needed
 echo "Executing update:"
 for ((i = 0; i < NUM_VERSION_VALS; i++)); do
     PART="${VERSION_FORMAT[i]}"
@@ -191,3 +201,5 @@ done
 rebuild_version "${VERSION_VALS[@]}"
 echo "format: $FORMAT" > $FILENAME # This is metadata
 echo "version: $FULL_VERSION" >> $FILENAME
+
+export VERMGR_VERSION=$FULL_VERSION
