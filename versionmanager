@@ -95,7 +95,8 @@ get_version_data() {
     # Check file exists and validate or create if it doesn't exist
     NUM_VERSION_VALS=${#VERSION_FORMAT[@]}
     if [ -f "$FILENAME" ]; then
-        local version_vals=($(grep -E "^version:" "$FILENAME" | awk '{print $2}' | sed "s/[$DELIMS]/ /g"))
+        local version_vals=($(grep -E "\"version\":" "$FILENAME" | awk '{print $2}' | sed 's/"/ /g' | sed "s/[$DELIMS]/ /g"))
+
         if [ $NUM_VERSION_VALS -ne ${#version_vals[@]} ]; then
             echo "Version file contains ${#version_vals[@]} components, but expecting $NUM_VERSION_VALS"
             echo "Please check params or version file"
@@ -114,9 +115,10 @@ get_version_data() {
             fi
         done
         rebuild_version "${version_vals[@]}"
+        export_json
 
-        echo "format: $FORMAT" > $FILENAME # This is metadata
-        echo "version: $FULL_VERSION" >> $FILENAME
+        # echo "format: $FORMAT" > $FILENAME # This is metadata
+        # echo "version: $FULL_VERSION" >> $FILENAME
 
         exit 0
     fi
@@ -138,12 +140,21 @@ rebuild_version() {
     FULL_VERSION=$full_version
 }
 
+export_json() {
+    cat << EOF > $FILENAME
+{
+    "format": "$FORMAT",
+    "version": "$FULL_VERSION"
+}
+EOF
+}
+
 ########################
 # SETUP
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # All that default value and flag stuff. Please don't edit this.
-FILENAME="version"
+FILENAME="version.json"
 UPDATE=true
 RELEASE=""
 VER_LVL=-1
@@ -199,7 +210,6 @@ for ((i = 0; i < NUM_VERSION_VALS; i++)); do
 done
 
 rebuild_version "${VERSION_VALS[@]}"
-echo "format: $FORMAT" > $FILENAME # This is metadata
-echo "version: $FULL_VERSION" >> $FILENAME
+export_json
 
 export VERMGR_VERSION=$FULL_VERSION
