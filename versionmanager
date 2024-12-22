@@ -157,7 +157,7 @@ get_version_data() {
         # echo "format: $FORMAT" > $FILENAME # This is metadata
         # echo "version: $FULL_VERSION" >> $FILENAME
 
-        exit 0
+        exit 1
     fi
 }
 
